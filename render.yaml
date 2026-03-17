@@ -19,6 +19,8 @@ services:
         fromDatabase:
           name: sei-bi-copag-andersoncfs-db
           property: connectionString
+      - key: PYTHON_VERSION
+        value: 3.12.9
       - key: JWT_SECRET_KEY
         generateValue: true
       - key: DEFAULT_ADMIN_NAME
