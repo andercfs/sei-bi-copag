@@ -19,11 +19,18 @@ password_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
+def _validate_bcrypt_password(password: str) -> None:
+    if len(password.encode("utf-8")) > 72:
+        raise ValueError("A senha excede o limite de 72 bytes do bcrypt.")
+
+
 def get_password_hash(password: str) -> str:
+    _validate_bcrypt_password(password)
     return password_context.hash(password)
 
 
 def verify_password(plain_password: str, password_hash: str) -> bool:
+    _validate_bcrypt_password(plain_password)
     return password_context.verify(plain_password, password_hash)
 
 
