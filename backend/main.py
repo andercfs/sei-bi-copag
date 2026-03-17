@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from .analytics import (
     AnalyticsFilters,
+    clear_analytics_cache,
     get_dashboard_data,
     get_entries_exits_data,
     get_filter_options,
@@ -95,7 +96,9 @@ def ensure_default_user() -> None:
 def auto_import_workspace_data() -> None:
     db = SessionLocal()
     try:
-        bootstrap_workspace_csvs(db)
+        results = bootstrap_workspace_csvs(db)
+        if any(result["status"] in {"imported", "replaced"} for result in results):
+            clear_analytics_cache()
     finally:
         db.close()
 
@@ -200,6 +203,9 @@ async def upload_snapshot(
     except Exception as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Falha ao importar CSV.") from exc
+
+    if result["status"] in {"imported", "replaced"}:
+        clear_analytics_cache()
 
     return UploadResult(**result)
 
