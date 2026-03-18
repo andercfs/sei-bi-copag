@@ -8,8 +8,8 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const { login, isAuthenticated } = useAuth();
   const [form, setForm] = useState({
-    email: "andersoncfs@ufc.br",
-    password: "admin123",
+    email: "",
+    password: "",
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -70,9 +70,7 @@ export default function LoginPage() {
             {loading ? "Entrando..." : "Entrar"}
           </button>
 
-          <div className="login-hint">
-            <strong>Acesso inicial:</strong> andersoncfs@ufc.br / admin123
-          </div>
+          <div className="login-hint">Use o email e a senha cadastrados pelo administrador.</div>
         </form>
       </div>
     </div>
