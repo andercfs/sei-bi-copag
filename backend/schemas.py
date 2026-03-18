@@ -42,6 +42,10 @@ class UploadRead(BaseModel):
     total_records: int
 
 
+class UploadUpdate(BaseModel):
+    data_relatorio: date
+
+
 class UploadResult(BaseModel):
     status: str
     message: str
