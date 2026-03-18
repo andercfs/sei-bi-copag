@@ -8,6 +8,32 @@ import LoadingBlock from "../components/LoadingBlock";
 const setores = ["DIAPE", "DICAT", "DIJOR", "DICAF", "DICAF-CHEFIA", "DICAF-REPOSICOES"];
 
 
+function formatDate(value) {
+  if (!value) {
+    return "-";
+  }
+
+  return new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
+}
+
+
+function formatDateTime(value) {
+  if (!value) {
+    return "-";
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "medium",
+  }).format(parsed);
+}
+
+
 export default function UploadPage() {
   const [form, setForm] = useState({
     setor: "DIAPE",
@@ -17,6 +43,10 @@ export default function UploadPage() {
   const [uploads, setUploads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [editingUploadId, setEditingUploadId] = useState(null);
+  const [editingDate, setEditingDate] = useState("");
+  const [savingUploadId, setSavingUploadId] = useState(null);
+  const [deletingUploadId, setDeletingUploadId] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -54,11 +84,73 @@ export default function UploadPage() {
       setMessage(`${data.message} ${data.total_registros} registros processados.`);
       setForm((current) => ({ ...current, file: null }));
       document.getElementById("upload-file-input").value = "";
-      loadUploads();
+      await loadUploads();
     } catch (requestError) {
       setError(requestError.response?.data?.detail || "Falha no envio do relatório.");
     } finally {
       setSending(false);
+    }
+  }
+
+  function startEditing(upload) {
+    setEditingUploadId(upload.id);
+    setEditingDate(upload.data_relatorio);
+    setMessage("");
+    setError("");
+  }
+
+  function cancelEditing() {
+    setEditingUploadId(null);
+    setEditingDate("");
+  }
+
+  async function handleSaveDate(upload) {
+    if (!editingDate) {
+      setError("Informe a nova data do relatório.");
+      return;
+    }
+
+    setSavingUploadId(upload.id);
+    setMessage("");
+    setError("");
+
+    try {
+      await api.patch(`/uploads/${upload.id}`, {
+        data_relatorio: editingDate,
+      });
+      setMessage(`Data do relatório de ${upload.original_filename} atualizada com sucesso.`);
+      cancelEditing();
+      await loadUploads();
+    } catch (requestError) {
+      setError(requestError.response?.data?.detail || "Falha ao atualizar a data do relatório.");
+    } finally {
+      setSavingUploadId(null);
+    }
+  }
+
+  async function handleDelete(upload) {
+    const confirmed = window.confirm(
+      `Deseja excluir o relatório ${upload.original_filename}? Esta ação removerá também os processos desse snapshot.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingUploadId(upload.id);
+    setMessage("");
+    setError("");
+
+    try {
+      const { data } = await api.delete(`/uploads/${upload.id}`);
+      setMessage(data.message || "Relatório excluído com sucesso.");
+      if (editingUploadId === upload.id) {
+        cancelEditing();
+      }
+      await loadUploads();
+    } catch (requestError) {
+      setError(requestError.response?.data?.detail || "Falha ao excluir o relatório.");
+    } finally {
+      setDeletingUploadId(null);
     }
   }
 
@@ -119,7 +211,7 @@ export default function UploadPage() {
         <div className="panel-header">
           <div>
             <h3>Histórico recente de uploads</h3>
-            <p>Os snapshots carregados aqui alimentam automaticamente todas as análises.</p>
+            <p>Você pode corrigir a data de um snapshot ou remover um relatório já enviado.</p>
           </div>
         </div>
         {loading ? (
@@ -128,10 +220,75 @@ export default function UploadPage() {
           <DataTable
             columns={[
               { key: "setor", label: "Setor" },
-              { key: "data_relatorio", label: "Data do relatório" },
-              { key: "data_upload", label: "Importado em" },
+              {
+                key: "data_relatorio",
+                label: "Data do relatório",
+                render: (value, row) =>
+                  editingUploadId === row.id ? (
+                    <div className="inline-date-editor">
+                      <input
+                        className="table-input"
+                        type="date"
+                        value={editingDate}
+                        onChange={(event) => setEditingDate(event.target.value)}
+                      />
+                      <small className="table-helper">Corrija a data e salve.</small>
+                    </div>
+                  ) : (
+                    formatDate(value)
+                  ),
+              },
+              {
+                key: "data_upload",
+                label: "Importado em",
+                render: (value) => formatDateTime(value),
+              },
               { key: "original_filename", label: "Arquivo" },
               { key: "total_records", label: "Registros" },
+              {
+                key: "actions",
+                label: "Ações",
+                render: (_, row) =>
+                  editingUploadId === row.id ? (
+                    <div className="table-actions">
+                      <button
+                        type="button"
+                        className="table-button primary"
+                        onClick={() => handleSaveDate(row)}
+                        disabled={savingUploadId === row.id || deletingUploadId === row.id}
+                      >
+                        {savingUploadId === row.id ? "Salvando..." : "Salvar"}
+                      </button>
+                      <button
+                        type="button"
+                        className="table-button"
+                        onClick={cancelEditing}
+                        disabled={savingUploadId === row.id}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="table-actions">
+                      <button
+                        type="button"
+                        className="table-button"
+                        onClick={() => startEditing(row)}
+                        disabled={deletingUploadId === row.id}
+                      >
+                        Editar data
+                      </button>
+                      <button
+                        type="button"
+                        className="table-button danger"
+                        onClick={() => handleDelete(row)}
+                        disabled={deletingUploadId === row.id}
+                      >
+                        {deletingUploadId === row.id ? "Excluindo..." : "Excluir"}
+                      </button>
+                    </div>
+                  ),
+              },
             ]}
             rows={uploads}
           />
