@@ -73,6 +73,7 @@ PROCESS_FIELD_DEFAULTS = {
 
 FLOW_FIELDS = ["protocolo", "setor", "data_relatorio"]
 SPAN_FIELDS = ["protocolo", "atribuicao", "tipo", "setor", "data_relatorio"]
+ASSIGNMENT_FIELDS = ["protocolo", "atribuicao", "setor", "data_relatorio"]
 
 _ANALYTICS_CACHE: dict[tuple[object, ...], dict] = {}
 _CACHE_LOCK = Lock()
@@ -265,6 +266,16 @@ def _protocols_by_date_and_sector(frame: pd.DataFrame) -> dict[tuple[date, str],
     return {(day, setor): protocolos for (day, setor), protocolos in grouped.items()}
 
 
+def _assignments_by_date_and_atribuicao(frame: pd.DataFrame) -> dict[tuple[date, str], set[str]]:
+    if frame.empty:
+        return {}
+
+    keyed = frame[["report_day", "atribuicao", "protocolo", "setor"]].copy()
+    keyed["assignment_key"] = keyed["protocolo"].astype(str) + "|" + keyed["setor"].astype(str)
+    grouped = keyed.groupby(["report_day", "atribuicao"])["assignment_key"].agg(set)
+    return {(day, atribuicao): assignment_keys for (day, atribuicao), assignment_keys in grouped.items()}
+
+
 def _span_record(start: dict, end: dict, available_dates: list[date], idx_map: dict[date, int]) -> dict:
     start_day = start.get("report_day") or pd.Timestamp(start["data_relatorio"]).date()
     end_day = end.get("report_day") or pd.Timestamp(end["data_relatorio"]).date()
@@ -444,80 +455,120 @@ def get_entries_exits_data(db: Session, filters: AnalyticsFilters) -> dict:
 
 def get_productivity_data(db: Session, filters: AnalyticsFilters) -> dict:
     def build() -> dict:
-        frame, reference_date, available_dates = _load_dataframe(db, filters, fields=SPAN_FIELDS)
+        frame, reference_date, available_dates = _load_dataframe(db, filters, fields=ASSIGNMENT_FIELDS)
         previous_date = _previous_date(available_dates, reference_date)
-        protocol_map = _protocols_by_date_and_sector(frame)
-        summary_days = {day for day in (reference_date, previous_date) if day}
-        summary_sectors = sorted({setor for (day, setor) in protocol_map.keys() if day in summary_days})
-        spans = _build_presence_spans(frame, available_dates)
-        open_spans = spans[spans["aberto"]] if not spans.empty else spans
+        assignment_map = _assignments_by_date_and_atribuicao(frame)
 
-        average_by_sector = []
-        average_by_type = []
-        oldest = []
-
-        if not spans.empty:
-            sector_avg = spans.groupby("setor")["duracao_dias"].mean().round(1).sort_values(ascending=False)
-            average_by_sector = [{"label": key, "value": float(value)} for key, value in sector_avg.items()]
-
-            type_avg = spans.groupby("tipo")["duracao_dias"].mean().round(1).sort_values(ascending=False).head(10)
-            average_by_type = [{"label": key, "value": float(value)} for key, value in type_avg.items()]
-
-            if not open_spans.empty:
-                open_spans = open_spans.sort_values("duracao_dias", ascending=False).head(10)
-                oldest = [
-                    {
-                        "protocolo": row["protocolo"],
-                        "setor": row["setor"],
-                        "atribuicao": row["atribuicao"],
-                        "tipo": row["tipo"],
-                        "entrada_setor": str(row["entrada_setor"]),
-                        "dias_no_setor": int(row["duracao_dias"]),
-                    }
-                    for _, row in open_spans.iterrows()
-                ]
-
-        sector_metrics = []
-        for setor in summary_sectors:
-            current_protocols = protocol_map.get((reference_date, setor), set())
-            previous_protocols = protocol_map.get((previous_date, setor), set()) if previous_date else set()
-            entradas = len(current_protocols - previous_protocols)
-            saidas = len(previous_protocols - current_protocols)
-            saldo = len(current_protocols) - len(previous_protocols)
-            avg_days = 0.0
-            if average_by_sector:
-                match = next((item for item in average_by_sector if item["label"] == setor), None)
-                avg_days = match["value"] if match else 0.0
-            sector_metrics.append(
-                {
-                    "setor": setor,
-                    "entradas": entradas,
-                    "saidas": saidas,
-                    "saldo": saldo,
-                    "carga_atual": len(current_protocols),
-                    "tempo_medio_permanencia": avg_days,
-                }
+        evolution = []
+        period_totals: dict[str, dict[str, float | int]] = {}
+        for idx, day in enumerate(available_dates):
+            previous_day = available_dates[idx - 1] if idx > 0 else None
+            current_attributions = {atribuicao for (map_day, atribuicao) in assignment_map.keys() if map_day == day}
+            previous_attributions = (
+                {atribuicao for (map_day, atribuicao) in assignment_map.keys() if map_day == previous_day}
+                if previous_day
+                else set()
             )
+            tracked_attributions = sorted(current_attributions | previous_attributions)
 
-        load_evolution = []
-        if not frame.empty:
-            grouped = frame.groupby(["report_day", "setor"])["protocolo"].count().reset_index()
-            for _, row in grouped.iterrows():
-                load_evolution.append(
+            for atribuicao in tracked_attributions:
+                current_assignments = assignment_map.get((day, atribuicao), set())
+                previous_assignments = assignment_map.get((previous_day, atribuicao), set()) if previous_day else set()
+                produzidos = len(previous_assignments - current_assignments) if previous_day else 0
+                entradas = len(current_assignments - previous_assignments) if previous_day else len(current_assignments)
+                saldo = len(current_assignments) - len(previous_assignments) if previous_day else len(current_assignments)
+                carga_anterior = len(previous_assignments)
+                carga_atual = len(current_assignments)
+                taxa_produtividade = round((produzidos / carga_anterior) * 100, 1) if carga_anterior else 0.0
+
+                evolution.append(
                     {
-                        "date": str(row["report_day"]),
-                        "setor": row["setor"],
-                        "carga": int(row["protocolo"]),
+                        "date": str(day),
+                        "atribuicao": atribuicao,
+                        "produzidos": produzidos,
+                        "entradas": entradas,
+                        "saldo": saldo,
+                        "carga_anterior": carga_anterior,
+                        "carga_atual": carga_atual,
+                        "taxa_produtividade": taxa_produtividade,
                     }
                 )
 
+                if atribuicao not in period_totals:
+                    period_totals[atribuicao] = {
+                        "produzidos_periodo": 0,
+                        "entradas_periodo": 0,
+                        "dias_com_movimento": 0,
+                    }
+                period_totals[atribuicao]["produzidos_periodo"] += produzidos
+                period_totals[atribuicao]["entradas_periodo"] += entradas
+                if produzidos or entradas:
+                    period_totals[atribuicao]["dias_com_movimento"] += 1
+
+        summary_rows = []
+        if reference_date:
+            summary_rows = [item for item in evolution if item["date"] == str(reference_date)]
+            summary_rows.sort(key=lambda item: (-item["produzidos"], -item["carga_atual"], item["atribuicao"]))
+
+        period_days = max(len(available_dates) - 1, 1)
+        ranking_periodo = sorted(
+            [
+                {
+                    "atribuicao": atribuicao,
+                    "produzidos_periodo": int(metrics["produzidos_periodo"]),
+                    "entradas_periodo": int(metrics["entradas_periodo"]),
+                    "dias_com_movimento": int(metrics["dias_com_movimento"]),
+                    "media_diaria_producao": round(float(metrics["produzidos_periodo"]) / period_days, 2),
+                }
+                for atribuicao, metrics in period_totals.items()
+            ],
+            key=lambda item: (-item["produzidos_periodo"], -item["entradas_periodo"], item["atribuicao"]),
+        )
+
+        total_produzido_dia = sum(item["produzidos"] for item in summary_rows)
+        total_entradas_dia = sum(item["entradas"] for item in summary_rows)
+        carga_atual_total = sum(item["carga_atual"] for item in summary_rows)
+        maior_produtor = summary_rows[0] if summary_rows else None
+
+        top_chart_attributions = [item["atribuicao"] for item in ranking_periodo[:8] if item["produzidos_periodo"] > 0]
+        if not top_chart_attributions:
+            top_chart_attributions = [item["atribuicao"] for item in summary_rows[:8]]
+
         return {
             "data_referencia": str(reference_date) if reference_date else None,
-            "metricas_setoriais": sector_metrics,
-            "tempo_medio_por_setor": average_by_sector,
-            "tempo_medio_por_tipo": average_by_type,
-            "top_10_mais_antigos": oldest,
-            "evolucao_carga_setorial": load_evolution,
+            "data_anterior": str(previous_date) if previous_date else None,
+            "criterio_produtividade": (
+                "Produção estimada = processos atribuídos no snapshot anterior e ausentes na mesma atribuição "
+                "na data de referência."
+            ),
+            "kpis": {
+                "total_produzido_dia": int(total_produzido_dia),
+                "total_entradas_dia": int(total_entradas_dia),
+                "atribuicoes_monitoradas": int(len(summary_rows)),
+                "carga_atual_total": int(carga_atual_total),
+            },
+            "maior_produtor": maior_produtor,
+            "resumo_atribuicoes": summary_rows,
+            "producao_por_atribuicao": [
+                {"label": item["atribuicao"], "value": int(item["produzidos"])}
+                for item in sorted(summary_rows, key=lambda row: (-row["produzidos"], row["atribuicao"]))[:10]
+            ],
+            "entradas_por_atribuicao": [
+                {"label": item["atribuicao"], "value": int(item["entradas"])}
+                for item in sorted(summary_rows, key=lambda row: (-row["entradas"], row["atribuicao"]))[:10]
+            ],
+            "carga_atual_por_atribuicao": [
+                {"label": item["atribuicao"], "value": int(item["carga_atual"])}
+                for item in sorted(summary_rows, key=lambda row: (-row["carga_atual"], row["atribuicao"]))[:10]
+            ],
+            "ranking_producao_periodo": ranking_periodo[:15],
+            "ranking_producao_periodo_grafico": [
+                {"label": item["atribuicao"], "value": int(item["produzidos_periodo"])}
+                for item in ranking_periodo[:10]
+            ],
+            "evolucao_produtividade": [
+                item for item in evolution if item["atribuicao"] in top_chart_attributions
+            ],
         }
 
     return _cached_response(db, "productivity", filters, build)
