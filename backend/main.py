@@ -25,8 +25,8 @@ from .auth import (
 )
 from .csv_importer import SETORES, bootstrap_workspace_csvs, import_csv_snapshot
 from .database import SessionLocal, get_db, init_db
-from .models import Upload, User
-from .schemas import FilterOptions, Token, UploadRead, UploadResult, UserCreate, UserLogin, UserRead
+from .models import Processo, Upload, User
+from .schemas import FilterOptions, Token, UploadRead, UploadResult, UploadUpdate, UserCreate, UserLogin, UserRead
 
 
 DEFAULT_ADMIN_NAME = os.getenv("DEFAULT_ADMIN_NAME", "Anderson CFS")
@@ -101,6 +101,13 @@ def auto_import_workspace_data() -> None:
             clear_analytics_cache()
     finally:
         db.close()
+
+
+def get_upload_or_404(db: Session, upload_id: int) -> Upload:
+    upload = db.query(Upload).filter(Upload.id == upload_id).first()
+    if not upload:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Relatório não encontrado.")
+    return upload
 
 
 @app.on_event("startup")
@@ -208,6 +215,60 @@ async def upload_snapshot(
         clear_analytics_cache()
 
     return UploadResult(**result)
+
+
+@app.patch("/api/uploads/{upload_id}", response_model=UploadRead)
+def update_upload(
+    upload_id: int,
+    payload: UploadUpdate,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Upload:
+    upload = get_upload_or_404(db, upload_id)
+    if payload.data_relatorio == upload.data_relatorio:
+        return upload
+
+    conflict = (
+        db.query(Upload)
+        .filter(
+            Upload.id != upload.id,
+            Upload.setor == upload.setor,
+            Upload.data_relatorio == payload.data_relatorio,
+        )
+        .first()
+    )
+    if conflict:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Já existe um relatório deste setor com a data informada.",
+        )
+
+    db.query(Processo).filter(Processo.upload_id == upload.id).update(
+        {Processo.data_relatorio: payload.data_relatorio},
+        synchronize_session=False,
+    )
+    upload.data_relatorio = payload.data_relatorio
+    db.commit()
+    db.refresh(upload)
+    clear_analytics_cache()
+    return upload
+
+
+@app.delete("/api/uploads/{upload_id}")
+def delete_upload(
+    upload_id: int,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    upload = get_upload_or_404(db, upload_id)
+    filename = upload.original_filename
+
+    db.query(Processo).filter(Processo.upload_id == upload.id).delete(synchronize_session=False)
+    db.delete(upload)
+    db.commit()
+    clear_analytics_cache()
+
+    return {"message": f"Relatório {filename} excluído com sucesso."}
 
 
 @app.get("/api/meta/options", response_model=FilterOptions)
