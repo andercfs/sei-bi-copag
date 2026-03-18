@@ -9,6 +9,12 @@ import StatCard from "../components/StatCard";
 import { useFilters } from "../context/FiltersContext";
 
 
+function formatDecimal(value, digits = 1) {
+  const number = Number(value ?? 0);
+  return number.toFixed(digits);
+}
+
+
 export default function ProductivityPage() {
   const { filters, toQueryParams } = useFilters();
   const [data, setData] = useState(null);
@@ -33,93 +39,119 @@ export default function ProductivityPage() {
   }, [filters]);
 
   if (loading) {
-    return <LoadingBlock label="Calculando produtividade e permanência..." />;
+    return <LoadingBlock label="Calculando produtividade por atribuição..." />;
   }
 
   if (error) {
     return <div className="alert error">{error}</div>;
   }
 
-  const maiorTempoMedio = data?.tempo_medio_por_setor?.[0];
-  const maisAntigo = data?.top_10_mais_antigos?.[0];
+  const maiorProdutor = data?.maior_produtor;
 
   return (
     <div className="page-grid">
       <section className="hero-panel">
         <div>
           <p className="eyebrow">Produtividade</p>
-          <h1>Permanência e carga operacional</h1>
-          <span>Indicadores derivados da permanência dos processos em cada setor ao longo dos snapshots.</span>
+          <h1>Produção diária por atribuição</h1>
+          <span>
+            Comparação entre {data?.data_anterior || "a data anterior disponível"} e {data?.data_referencia || "a data de referência"}.
+            {" "}
+            {data?.criterio_produtividade}
+          </span>
         </div>
       </section>
 
       <section className="stats-grid">
+        <StatCard label="Produção estimada do dia" value={data?.kpis?.total_produzido_dia ?? 0} />
+        <StatCard label="Entradas do dia" value={data?.kpis?.total_entradas_dia ?? 0} />
         <StatCard
-          label="Maior tempo médio"
-          value={maiorTempoMedio ? `${maiorTempoMedio.value} dias` : "0 dias"}
-          hint={maiorTempoMedio?.label}
+          label="Maior produtor do dia"
+          value={maiorProdutor ? `${maiorProdutor.produzidos} processos` : "0 processos"}
+          hint={maiorProdutor?.atribuicao}
         />
-        <StatCard label="Setores monitorados" value={data?.tempo_medio_por_setor?.length ?? 0} />
         <StatCard
-          label="Processo mais antigo"
-          value={maisAntigo ? `${maisAntigo.dias_no_setor} dias` : "0 dias"}
-          hint={maisAntigo?.protocolo}
+          label="Carga atual atribuída"
+          value={data?.kpis?.carga_atual_total ?? 0}
+          hint={`${data?.kpis?.atribuicoes_monitoradas ?? 0} atribuições monitoradas`}
         />
       </section>
 
       <section className="charts-grid">
-        <BarChartCard title="Tempo médio de permanência por setor" data={data?.tempo_medio_por_setor || []} />
         <BarChartCard
-          title="Tempo médio por tipo de processo"
-          data={(data?.tempo_medio_por_tipo || []).slice(0, 10)}
+          title="Produção do dia por atribuição"
+          subtitle="Processos que deixaram de estar na atribuição entre o snapshot anterior e o atual."
+          data={data?.producao_por_atribuicao || []}
+        />
+        <BarChartCard
+          title="Entradas do dia por atribuição"
+          subtitle="Processos que passaram a constar na atribuição na data de referência."
+          data={data?.entradas_por_atribuicao || []}
+          color="#c2603b"
+        />
+        <BarChartCard
+          title="Carga atual por atribuição"
+          subtitle="Quantidade de processos hoje em cada carteira."
+          data={data?.carga_atual_por_atribuicao || []}
           color="#0f5f73"
         />
         <LineChartCard
-          title="Evolução diária da carga por setor"
-          data={data?.evolucao_carga_setorial || []}
+          title="Evolução diária da produção por atribuição"
+          subtitle="Série das atribuições mais produtivas no período filtrado."
+          data={data?.evolucao_produtividade || []}
           xKey="date"
-          valueKey="carga"
-          seriesKey="setor"
+          valueKey="produzidos"
+          seriesKey="atribuicao"
         />
       </section>
 
       <section className="panel">
         <div className="panel-header">
           <div>
-            <h3>Top 10 processos mais antigos em tramitação</h3>
-            <p>Processos com maior tempo inferido no setor atual.</p>
+            <h3>Resumo do dia por atribuição</h3>
+            <p>Leitura diária da produtividade estimada por usuário a partir da comparação entre snapshots.</p>
           </div>
         </div>
         <DataTable
           columns={[
-            { key: "protocolo", label: "Protocolo" },
-            { key: "setor", label: "Setor" },
             { key: "atribuicao", label: "Atribuição" },
-            { key: "tipo", label: "Tipo" },
-            { key: "entrada_setor", label: "Entrada no setor" },
-            { key: "dias_no_setor", label: "Dias no setor" },
+            { key: "carga_anterior", label: "Carga anterior" },
+            { key: "carga_atual", label: "Carga atual" },
+            { key: "entradas", label: "Entradas" },
+            { key: "produzidos", label: "Produzidos" },
+            { key: "saldo", label: "Saldo" },
+            {
+              key: "taxa_produtividade",
+              label: "Taxa de produção",
+              render: (value) => `${formatDecimal(value)}%`,
+            },
           ]}
-          rows={data?.top_10_mais_antigos || []}
+          rows={data?.resumo_atribuicoes || []}
+          emptyMessage="Não há histórico suficiente para calcular produtividade por atribuição."
         />
       </section>
 
       <section className="panel">
         <div className="panel-header">
           <div>
-            <h3>Métricas setoriais</h3>
-            <p>Resumo de entradas, saídas, saldo, carga atual e permanência média por setor.</p>
+            <h3>Ranking acumulado no período</h3>
+            <p>Total estimado de produção por atribuição dentro do recorte filtrado.</p>
           </div>
         </div>
         <DataTable
           columns={[
-            { key: "setor", label: "Setor" },
-            { key: "entradas", label: "Entradas" },
-            { key: "saidas", label: "Saídas" },
-            { key: "saldo", label: "Saldo" },
-            { key: "carga_atual", label: "Carga atual" },
-            { key: "tempo_medio_permanencia", label: "Tempo médio (dias)" },
+            { key: "atribuicao", label: "Atribuição" },
+            { key: "produzidos_periodo", label: "Produzidos no período" },
+            { key: "entradas_periodo", label: "Entradas no período" },
+            { key: "dias_com_movimento", label: "Dias com movimento" },
+            {
+              key: "media_diaria_producao",
+              label: "Média diária",
+              render: (value) => formatDecimal(value, 2),
+            },
           ]}
-          rows={data?.metricas_setoriais || []}
+          rows={data?.ranking_producao_periodo || []}
+          emptyMessage="Ainda não há período suficiente para montar o ranking acumulado."
         />
       </section>
     </div>
