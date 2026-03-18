@@ -508,7 +508,14 @@ def get_productivity_data(db: Session, filters: AnalyticsFilters) -> dict:
         summary_rows = []
         if reference_date:
             summary_rows = [item for item in evolution if item["date"] == str(reference_date)]
-            summary_rows.sort(key=lambda item: (-item["produzidos"], -item["carga_atual"], item["atribuicao"]))
+            summary_rows.sort(
+                key=lambda item: (
+                    -item["taxa_produtividade"],
+                    -item["produzidos"],
+                    -item["carga_anterior"],
+                    item["atribuicao"],
+                )
+            )
 
         period_days = max(len(available_dates) - 1, 1)
         ranking_periodo = sorted(
@@ -528,7 +535,14 @@ def get_productivity_data(db: Session, filters: AnalyticsFilters) -> dict:
         total_produzido_dia = sum(item["produzidos"] for item in summary_rows)
         total_entradas_dia = sum(item["entradas"] for item in summary_rows)
         carga_atual_total = sum(item["carga_atual"] for item in summary_rows)
-        maior_produtor = summary_rows[0] if summary_rows else None
+        maior_produtor = (
+            max(
+                summary_rows,
+                key=lambda item: (item["produzidos"], item["taxa_produtividade"], -item["carga_atual"]),
+            )
+            if summary_rows
+            else None
+        )
 
         top_chart_attributions = [item["atribuicao"] for item in ranking_periodo[:8] if item["produzidos_periodo"] > 0]
         if not top_chart_attributions:
