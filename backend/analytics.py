@@ -510,8 +510,8 @@ def get_productivity_data(db: Session, filters: AnalyticsFilters) -> dict:
             summary_rows = [item for item in evolution if item["date"] == str(reference_date)]
             summary_rows.sort(
                 key=lambda item: (
-                    -item["taxa_produtividade"],
                     -item["produzidos"],
+                    -item["taxa_produtividade"],
                     -item["carga_anterior"],
                     item["atribuicao"],
                 )
