@@ -284,6 +284,11 @@ select {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 320px 1fr;
+  transition: grid-template-columns 0.2s ease;
+}
+
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 104px 1fr;
 }
 
 .sidebar {
@@ -296,6 +301,33 @@ select {
   gap: 20px;
   background: rgba(17, 31, 31, 0.9);
   color: #edf5f3;
+  transition: padding 0.2s ease, transform 0.2s ease;
+}
+
+.sidebar.collapsed {
+  padding: 18px 12px;
+}
+
+.sidebar-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sidebar-collapse-button {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #edf5f3;
+  cursor: pointer;
+  font-weight: 700;
+  transition: transform 0.18s ease, background 0.18s ease, opacity 0.18s ease;
+}
+
+.sidebar-collapse-button:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .brand-panel {
@@ -315,18 +347,43 @@ select {
   color: rgba(237, 245, 243, 0.72);
 }
 
+.sidebar.collapsed .brand-panel {
+  padding: 18px 14px;
+}
+
+.sidebar.collapsed .brand-panel h1 {
+  margin: 8px 0 0;
+  font-size: 1.05rem;
+  line-height: 1.1;
+}
+
+.sidebar.collapsed .brand-panel span {
+  display: none;
+}
+
 .menu {
   display: grid;
   gap: 10px;
 }
 
 .menu-link {
+  display: flex;
+  align-items: center;
   padding: 15px 16px;
   border-radius: 18px;
   color: rgba(237, 245, 243, 0.8);
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid transparent;
   transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.sidebar.collapsed .menu-link {
+  justify-content: center;
+  min-height: 58px;
+  padding: 14px 10px;
+  text-align: center;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
 }
 
 .menu-link:hover,
@@ -537,6 +594,10 @@ select {
     grid-template-columns: 1fr;
   }
 
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 1fr;
+  }
+
   .sidebar {
     position: fixed;
     inset: 0 auto 0 0;
@@ -548,6 +609,37 @@ select {
 
   .sidebar.open {
     transform: translateX(0);
+  }
+
+  .sidebar.collapsed {
+    padding: 22px;
+  }
+
+  .sidebar.collapsed .brand-panel {
+    padding: 22px;
+  }
+
+  .sidebar.collapsed .brand-panel h1 {
+    margin: 10px 0;
+    font-size: 2rem;
+    line-height: 1;
+  }
+
+  .sidebar.collapsed .brand-panel span {
+    display: block;
+  }
+
+  .sidebar.collapsed .menu-link {
+    justify-content: flex-start;
+    min-height: auto;
+    padding: 15px 16px;
+    font-size: 1rem;
+    letter-spacing: normal;
+    text-align: left;
+  }
+
+  .sidebar-collapse-button {
+    display: none;
   }
 
   .menu-toggle {
