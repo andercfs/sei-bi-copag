@@ -1,5 +1,5 @@
 import { Outlet, useLocation } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useAuth } from "../context/AuthContext";
 import FilterBar from "./FilterBar";
@@ -19,10 +19,28 @@ export default function AppLayout() {
   const { pathname } = useLocation();
   const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.localStorage.getItem("sei-bi-sidebar-collapsed") === "true";
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem("sei-bi-sidebar-collapsed", String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
 
   return (
-    <div className="app-shell">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+      <Sidebar
+        open={sidebarOpen}
+        collapsed={sidebarCollapsed}
+        onClose={() => setSidebarOpen(false)}
+        onToggleCollapse={() => setSidebarCollapsed((value) => !value)}
+      />
 
       <main className="content-shell">
         <header className="topbar">
